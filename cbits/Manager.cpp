@@ -10,6 +10,8 @@
 #include <QtCore/QLoggingCategory>
 #include <QtNetwork/QTcpServer>
 #include <QtNetwork/QTcpSocket>
+#include <QtQuick/QQuickWindow>
+#include <QtQuick/QSGRendererInterface>
 #ifdef Q_OS_MAC
 #include <pthread.h>
 #endif
@@ -22,12 +24,14 @@
 #include "Model.h"
 #include "Object.h"
 
+#ifndef HSQML_QT6
 // Declarations for part of Qt's internal API
 Q_DECL_IMPORT const QVariant::Handler* qcoreVariantHandler();
 namespace QVariantPrivate {
 Q_DECL_IMPORT void registerHandler(
     const int name, const QVariant::Handler *handler);
 }
+#endif
 
 static const char* cCounterNames[] = {
     "ClassCounter",
@@ -57,13 +61,14 @@ static void dump_counters()
     Q_ASSERT (gManager);
     if (gManager->checkLogLevel(1)) {
         for (int i=0; i<HsQMLManager::TotalCounters; i++) {
-            gManager->log(QString().sprintf("%s = %d.",
+            gManager->log(QString::asprintf("%s = %d.",
                 cCounterNames[i], gManager->updateCounter(
                     static_cast<HsQMLManager::CounterId>(i), 0)));
         }
     }
 }
 
+#ifndef HSQML_QT6
 static void hooked_construct(QVariant::Private* p, const void* copy)
 {
     gManager->hookedConstruct(p, copy);
@@ -73,6 +78,7 @@ static void hooked_clear(QVariant::Private* p)
 {
     gManager->hookedClear(p);
 }
+#endif
 
 ManagerPointer gManager;
 
@@ -83,9 +89,13 @@ HsQMLManager::HsQMLManager(
     , mAtExit(false)
     , mFreeFun(freeFun)
     , mFreeStable(freeStable)
+#ifndef HSQML_QT6
     , mOriginalHandler(qcoreVariantHandler())
+#endif
     , mApp(NULL)
+#ifndef HSQML_QT6
     , mLock(QMutex::Recursive)
+#endif
     , mRunning(false)
     , mRunCount(0)
     , mShutdown(false)
@@ -155,8 +165,8 @@ bool HsQMLManager::setArgs(const QStringList& args)
     mArgs.reserve(args.size());
     mArgsPtrs.clear();
     mArgsPtrs.reserve(args.size());
-    Q_FOREACH(const QString& arg, args) {
-        mArgs << arg.toLocal8Bit(); 
+    for (const QString& arg : args) {
+        mArgs << arg.toLocal8Bit();
         mArgsPtrs << mArgs.last().data();
     }
     return true;
@@ -210,6 +220,7 @@ void HsQMLManager::unregisterObject(const QObject* obj)
     Q_ASSERT(removed);
 }
 
+#ifndef HSQML_QT6
 void HsQMLManager::hookedConstruct(QVariant::Private* p, const void* copy)
 {
     char guard;
@@ -248,6 +259,7 @@ void HsQMLManager::hookedClear(QVariant::Private* p)
     }
     mOriginalHandler->clear(p);
 }
+#endif
 
 bool HsQMLManager::isEventThread()
 {
@@ -425,15 +437,27 @@ HsQMLManager::EventLoopStatus HsQMLManager::shutdown()
 }
 
 HsQMLManagerApp::HsQMLManagerApp()
+#ifndef HSQML_QT6
     : mHookedHandler(*gManager->mOriginalHandler)
     , mArgC(gManager->argsPtrs().size())
     , mApp(mArgC, gManager->argsPtrs().data())
+#else
+    : mArgC(gManager->argsPtrs().size())
+    , mApp(mArgC, gManager->argsPtrs().data())
+#endif
 {
+#ifdef HSQML_QT6
+    QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
+#endif
     gManager->argsPtrs().resize(mArgC);
 
     // Only enable debugging if the flag is set
     if (gManager->getFlag(HSQML_GFLAG_ENABLE_QML_DEBUG)) {
+#ifdef HSQML_QT6
+        QQmlDebuggingEnabler::enableDebugging(true);
+#else
         QQmlDebuggingEnabler enabler(true);
+#endif
 
         const QString configString = QString::fromLatin1("port:3768,block=true");
 
@@ -459,10 +483,12 @@ HsQMLManagerApp::HsQMLManagerApp()
 
     mApp.setQuitOnLastWindowClosed(false);
 
+#ifndef HSQML_QT6
     // Install hooked handler for QVariants
     mHookedHandler.construct = &hooked_construct;
     mHookedHandler.clear = &hooked_clear;
     QVariantPrivate::registerHandler(0, &mHookedHandler);
+#endif
 
     // Register custom types
     qmlRegisterType<HsQMLCanvas>("HsQML.Canvas", 1, 0, "HaskellCanvas");

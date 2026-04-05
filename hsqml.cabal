@@ -35,6 +35,11 @@ Flag UsePkgConfig
         Use pkg-config for libraries instead of the platform default mechanism.
     Default: False
 
+Flag useqt6
+    Description:
+        Build against Qt 6 instead of Qt 5.
+    Default: False
+
 Flag ThreadedTestSuite
     Description:
         Build test executable with the threaded RTS.
@@ -60,6 +65,7 @@ Custom-Setup
         base             == 4.*,
         template-haskell == 2.*,
         Cabal            >= 3.8 && <3.12,
+        directory        >= 1.3.9 && < 1.4,
         filepath         >= 1.4.300 && < 1.6
 
 common extensions
@@ -126,37 +132,64 @@ Library
         cbits/HighDpiScaling.h
         cbits/Manager.h
         cbits/Model.h
-    CC-options: --std=c++11
     X-separate-cbits: True
     build-tool-depends: c2hs:c2hs
+    if flag(useqt6)
+        CC-options: --std=c++17
+        Cxx-options: --std=c++17
+        CC-options: -DHSQML_QT6
+        Cxx-options: -DHSQML_QT6
+    else
+        CC-options: --std=c++11
+        Cxx-options: --std=c++11
     if flag(ForceGHCiLib)
         X-force-ghci-lib: True
     if flag(UseExitHook)
         CC-options: -DHSQML_USE_EXIT_HOOK
+        Cxx-options: -DHSQML_USE_EXIT_HOOK
     if flag(EnableQmlDebugging)
         CC-options: -DQT_QML_DEBUG_NO_WARNING
+        Cxx-options: -DQT_QML_DEBUG_NO_WARNING
     if os(windows) && !flag(UsePkgConfig)
         Include-dirs: /QT_ROOT/include
-        Extra-libraries:
-            Qt5Core, Qt5Gui, Qt5Widgets, Qt5Network, Qt5Qml, Qt5Quick, stdc++
+        if flag(useqt6)
+            Extra-libraries:
+                Qt6Core, Qt6Gui, Qt6Widgets, Qt6Network, Qt6Qml, Qt6Quick, Qt6OpenGL, stdc++
+        else
+            Extra-libraries:
+                Qt5Core, Qt5Gui, Qt5Widgets, Qt5Network, Qt5Qml, Qt5Quick, stdc++
         Extra-lib-dirs: /SYS_ROOT/bin /QT_ROOT/bin
         if impl(ghc < 7.8)
             -- Pre-7.8 GHCi can't load eh_frame sections
             GHC-options: -optc-fno-asynchronous-unwind-tables
     else
         if os(darwin) && !flag(UsePkgConfig)
-            Frameworks: QtCore QtGui QtWidgets QtNetwork QtQml QtQuick
+            if flag(useqt6)
+                Frameworks: QtCore QtGui QtWidgets QtNetwork QtQml QtQuick QtOpenGL
+            else
+                Frameworks: QtCore QtGui QtWidgets QtNetwork QtQml QtQuick
             Include-dirs: /QT_ROOT/include
             CC-options: -F /QT_ROOT/lib
+            Cxx-options: -F /QT_ROOT/lib
             Extra-framework-dirs: /QT_ROOT/lib
         else
-            Pkgconfig-depends:
-                Qt5Core    >= 5.0 && < 6.0,
-                Qt5Gui     >= 5.0 && < 6.0,
-                Qt5Widgets >= 5.0 && < 6.0,
-                Qt5Network >= 5.0 && < 6.0,
-                Qt5Qml     >= 5.0 && < 6.0,
-                Qt5Quick   >= 5.0 && < 6.0
+            if flag(useqt6)
+                Pkgconfig-depends:
+                    Qt6Core    >= 6.0 && < 7.0,
+                    Qt6Gui     >= 6.0 && < 7.0,
+                    Qt6Widgets >= 6.0 && < 7.0,
+                    Qt6Network >= 6.0 && < 7.0,
+                    Qt6Qml     >= 6.0 && < 7.0,
+                    Qt6Quick   >= 6.0 && < 7.0,
+                    Qt6OpenGL  >= 6.0 && < 7.0
+            else
+                Pkgconfig-depends:
+                    Qt5Core    >= 5.0 && < 6.0,
+                    Qt5Gui     >= 5.0 && < 6.0,
+                    Qt5Widgets >= 5.0 && < 6.0,
+                    Qt5Network >= 5.0 && < 6.0,
+                    Qt5Qml     >= 5.0 && < 6.0,
+                    Qt5Quick   >= 5.0 && < 6.0
         Extra-libraries: stdc++
 
 Test-Suite hsqml-test1

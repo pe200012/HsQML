@@ -119,7 +119,7 @@ void HsQMLAutoListModel::updateModelByReset()
 {
     int srcLen = sourceLength();
 
-    HSQML_LOG(3, QString().sprintf(
+    HSQML_LOG(3, QString::asprintf(
         "AutoListModel.ByReset: Inserted %d elements.", srcLen));
     beginResetModel();
     mOldModel.clear();
@@ -146,7 +146,7 @@ void HsQMLAutoListModel::updateModelByIndex()
     // Add or remove elements to/from the end of the list
     if (srcLen > oldLen) {
         mOldModel.reserve(srcLen);
-        HSQML_LOG(3, QString().sprintf(
+        HSQML_LOG(3, QString::asprintf(
             "AutoListModel.ByIndex: Inserted %d extra elements at %d.",
             srcLen - oldLen, oldLen));
         beginInsertRows(QModelIndex(), oldLen, srcLen-1);
@@ -156,7 +156,7 @@ void HsQMLAutoListModel::updateModelByIndex()
         endInsertRows();
     }
     else if (oldLen > srcLen) {
-        HSQML_LOG(3, QString().sprintf(
+        HSQML_LOG(3, QString::asprintf(
             "AutoListModel.ByIndex: Removed %d excess elements at %d.",
             oldLen - srcLen, srcLen));
         beginRemoveRows(QModelIndex(), srcLen, oldLen-1);
@@ -224,7 +224,7 @@ void HsQMLAutoListModel::updateModelByKey(bool reorder)
                 }
 
                 // Remove element
-                HSQML_LOG(3, QString().sprintf(
+                HSQML_LOG(3, QString::asprintf(
                     "AutoListModel.ByKey: Removed element at %d.", i));
                 beginRemoveRows(QModelIndex(), i, i);
                 mOldOffset++;
@@ -236,7 +236,7 @@ void HsQMLAutoListModel::updateModelByKey(bool reorder)
             if (elemIdx > mOldOffset) {
                 Q_ASSERT(reorder);
                 int srcIdx = fromOldIndex(elemIdx);
-                HSQML_LOG(3, QString().sprintf(
+                HSQML_LOG(3, QString::asprintf(
                     "AutoListModel.ByKey: Moved element at %d to %d.",
                     srcIdx, i));
                 beginMoveRows(QModelIndex(), srcIdx, srcIdx, QModelIndex(), i);
@@ -265,7 +265,7 @@ void HsQMLAutoListModel::updateModelByKey(bool reorder)
             Q_ASSERT(mNewModel.size() == i+1);
         }
         else {
-            HSQML_LOG(3, QString().sprintf(
+            HSQML_LOG(3, QString::asprintf(
                 "AutoListModel.ByKey: Inserted element at %d.", i));
             beginInsertRows(QModelIndex(), i, i);
             mNewModel.append(Element(srcVal, srcKey));
@@ -276,9 +276,9 @@ void HsQMLAutoListModel::updateModelByKey(bool reorder)
     // Move element to the old model, removing any excess elements from the end
     bool excess = mOldOffset < mOldModel.size();
     if (excess) {
-        HSQML_LOG(3, QString().sprintf(
+        HSQML_LOG(3, QString::asprintf(
             "AutoListModel.ByKey: Removed %d excess elements at %d.",
-            mOldModel.size() - mOldOffset, srcLen));
+            static_cast<int>(mOldModel.size() - mOldOffset), srcLen));
         beginRemoveRows(QModelIndex(), srcLen, rowCount(QModelIndex())-1);
     }
     mNewModel.swap(mOldModel);

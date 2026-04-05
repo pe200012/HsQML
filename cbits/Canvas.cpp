@@ -3,10 +3,58 @@
 #include "Manager.h"
 
 #include <QtCore/qmath.h>
+#include <QtQuick/QSGRendererInterface>
 #include <QtQuick/QSGSimpleTextureNode>
 #include <QtQuick/QSGTexture>
 #include <QtQuick/QSGTransformNode>
 #include <QtQuick/QQuickWindow>
+
+namespace {
+QOpenGLContext* hsqmlWindowOpenGLContext(QQuickWindow* window)
+{
+#ifdef HSQML_QT6
+    return static_cast<QOpenGLContext*>(
+        window->rendererInterface()->getResource(
+            window, QSGRendererInterface::OpenGLContextResource));
+#else
+    return window->openglContext();
+#endif
+}
+
+QSGTexture* hsqmlTextureFromFbo(
+    QQuickWindow* window,
+    QOpenGLFramebufferObject* fbo,
+    const QSize& dims)
+{
+#ifdef HSQML_QT6
+    return QNativeInterface::QSGOpenGLTexture::fromNative(
+        fbo->texture(), window, dims, QQuickWindow::TextureHasAlphaChannel);
+#else
+    return window->createTextureFromId(
+        fbo->texture(), dims, QQuickWindow::TextureHasAlphaChannel);
+#endif
+}
+
+void hsqmlBeginExternalCommands(QQuickWindow* window)
+{
+#ifdef HSQML_QT6
+    window->beginExternalCommands();
+#else
+#if QT_VERSION >= 0x050200
+    window->resetOpenGLState();
+#endif
+#endif
+}
+
+void hsqmlEndExternalCommands(QQuickWindow* window)
+{
+#ifdef HSQML_QT6
+    window->endExternalCommands();
+#else
+    Q_UNUSED(window);
+#endif
+}
+}
 
 HsQMLGLCallbacks::HsQMLGLCallbacks(
     HsQMLGLSetupCb setupCb, HsQMLGLCleanupCb cleanupCb,
@@ -88,7 +136,9 @@ void HsQMLWindowInfo::addBelow()
 {
     Q_ASSERT(mImpl);
     if (0 == mImpl->mBelowCount++) {
+#ifndef HSQML_QT6
         mImpl->mWin->setClearBeforeRendering(false);
+#endif
     }
 }
 
@@ -96,7 +146,9 @@ void HsQMLWindowInfo::removeBelow()
 {
     Q_ASSERT(mImpl);
     if (0 == --mImpl->mBelowCount) {
+#ifndef HSQML_QT6
         mImpl->mWin->setClearBeforeRendering(true);
+#endif
     }
 }
 
@@ -139,7 +191,11 @@ HsQMLCanvasBackEnd::HsQMLCanvasBackEnd(
     }
     else {
         QObject::connect(
+#ifdef HSQML_QT6
+            win, SIGNAL(beforeRenderPassRecording()),
+#else
             win, SIGNAL(beforeRendering()),
+#endif
             this, SLOT(doRendering()));
 
         if (HsQMLCanvas::Below == mDisplayMode) {
@@ -175,8 +231,8 @@ QSGTexture* HsQMLCanvasBackEnd::updateFBO(qreal w, qreal h)
             QSize dims(qCeil(mCanvasWidth), qCeil(mCanvasHeight));
             mFBO.reset(new QOpenGLFramebufferObject(
                 dims, QOpenGLFramebufferObject::Depth));
-            mTexture.reset(mWindow->createTextureFromId(
-                mFBO->texture(), dims, QQuickWindow::TextureHasAlphaChannel));
+            mTexture.reset(hsqmlTextureFromFbo(
+                mWindow, mFBO.data(), dims));
         }
     }
     else {
@@ -203,7 +259,11 @@ void HsQMLCanvasBackEnd::setStatus(HsQMLCanvas::Status status)
 void HsQMLCanvasBackEnd::doRendering()
 {
     if (!mGL) {
-        mGL = mWindow->openglContext();
+        mGL = hsqmlWindowOpenGLContext(mWindow);
+        if (!mGL) {
+            setStatus(HsQMLCanvas::BadConfig);
+            return;
+        }
         QObject::connect(
             mGL, SIGNAL(aboutToBeDestroyed()), this, SLOT(doCleanup()));
         HsQMLGLCanvasType ctype;
@@ -227,12 +287,7 @@ void HsQMLCanvasBackEnd::doRendering()
             ctype, format.majorVersion(), format.minorVersion());
     }
 
-    // Reset OpenGL state before rendering
-#if QT_VERSION >= 0x050200
-    mWindow->resetOpenGLState();
-#else
-#warning Resetting OpenGL state requires Qt 5.2 or later
-#endif
+    hsqmlBeginExternalCommands(mWindow);
 
     // Clear window if painting below the scenegraph
     if (mWinInfo.needsBelowClear()) {
@@ -246,6 +301,7 @@ void HsQMLCanvasBackEnd::doRendering()
     bool inlineMode = HsQMLCanvas::Inline == mDisplayMode;
     if (inlineMode) {
         if (!mFBO->bind()) {
+            hsqmlEndExternalCommands(mWindow);
             setStatus(HsQMLCanvas::BadBind);
             return;
         }
@@ -281,6 +337,8 @@ void HsQMLCanvasBackEnd::doRendering()
     if (inlineMode) {
         mFBO->release();
     }
+
+    hsqmlEndExternalCommands(mWindow);
 }
 
 void HsQMLCanvasBackEnd::doEndFrame()
@@ -333,8 +391,15 @@ HsQMLCanvas::~HsQMLCanvas()
     detachBackEnd();
 }
 
-void HsQMLCanvas::geometryChanged(const QRectF& rect, const QRectF&)
+#ifdef HSQML_QT6
+void HsQMLCanvas::geometryChange(const QRectF& rect, const QRectF& oldRect)
 {
+    QQuickItem::geometryChange(rect, oldRect);
+#else
+void HsQMLCanvas::geometryChanged(const QRectF& rect, const QRectF& oldRect)
+{
+    QQuickItem::geometryChanged(rect, oldRect);
+#endif
     if (!mCanvasWidthSet) {
         setCanvasWidth(rect.width(), false);
     }
@@ -743,8 +808,12 @@ void HsQMLContextControl::doWindowChanged(QQuickWindow* win)
             mWindow, SIGNAL(sceneGraphInitialized()),
             this, SLOT(doSceneGraphInit()));
         mOriginal = mWindow->requestedFormat();
+#ifdef HSQML_QT6
+        mCurrent = mWindow->format();
+#else
         mCurrent = mWindow->openglContext() ?
             mWindow->openglContext()->format() : mWindow->format();
+#endif
     }
     else {
         mOriginal = QSurfaceFormat();
@@ -761,7 +830,12 @@ void HsQMLContextControl::doWindowChanged(QQuickWindow* win)
 
 void HsQMLContextControl::doSceneGraphInit()
 {
+#ifdef HSQML_QT6
+    QOpenGLContext* ctx = hsqmlWindowOpenGLContext(mWindow);
+    mCurrent = ctx ? ctx->format() : mWindow->format();
+#else
     mCurrent = mWindow->openglContext()->format();
+#endif
     contextChanged();
 }
 
@@ -812,13 +886,21 @@ void HsQMLContextControl::controlContext()
     mWindow->setFormat(fmt);
 
     // Recreate OpenGL context
+#ifdef HSQML_QT6
+    mWindow->setPersistentGraphics(false);
+#else
     mWindow->setPersistentOpenGLContext(false);
+#endif
     mWindow->setPersistentSceneGraph(false);
     bool visible = mWindow->isVisible();
     mWindow->destroy();
     mWindow->releaseResources();
     mWindow->setVisible(visible);
+#ifdef HSQML_QT6
+    mWindow->setPersistentGraphics(true);
+#else
     mWindow->setPersistentOpenGLContext(true);
+#endif
     mWindow->setPersistentSceneGraph(true);
 }
 

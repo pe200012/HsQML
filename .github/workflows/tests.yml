@@ -21,8 +21,8 @@ jobs:
           ubuntu-version: latest
           version: 0.1.7.1
 
-  tests:
-    name: ${{ matrix.ghc }} on ${{ matrix.os }}
+  tests-qt5:
+    name: Qt5 / ${{ matrix.ghc }} on ${{ matrix.os }}
     needs: generate-matrix
     runs-on: ${{ matrix.os }}
     strategy:
@@ -38,8 +38,54 @@ jobs:
           ghc-version: ${{ matrix.ghc }}
           cabal-version: 3.10.3.0
 
+      - name: Cache Cabal packages
+        uses: actions/cache@v4.2.3
+        with:
+          path: |
+            ~/.cabal/packages
+            ~/.cabal/store
+            dist-newstyle
+          key: qt5-${{ runner.os }}-ghc-${{ matrix.ghc }}-cabal-${{ hashFiles('**/*.cabal', '**/cabal.project', '**/cabal.project.freeze') }}
+          restore-keys: |
+            qt5-${{ runner.os }}-ghc-${{ matrix.ghc }}-cabal-
+
+      - name: Install Qt5 Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            qtdeclarative5-dev \
+            qml-module-qtquick-window2 \
+            qml-module-qtquick2 \
+            qttools5-dev-tools \
+            qtbase5-dev
+
       - name: Configure
-        run: cabal configure --enable-tests
+        run: PATH=/usr/lib64/qt5/bin:$PATH cabal configure --enable-tests
+
+      - name: Build
+        run: PATH=/usr/lib64/qt5/bin:$PATH cabal build --enable-tests
+
+      - name: Test
+        run: |
+          export QT_QPA_PLATFORM=offscreen
+          PATH=/usr/lib64/qt5/bin:$PATH cabal run hsqml-test1 --enable-tests
+
+  tests-qt6:
+    name: Qt6 / ${{ matrix.ghc }} on ${{ matrix.os }}
+    needs: generate-matrix
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
+    steps:
+      - name: Checkout base repo
+        uses: actions/checkout@v4
+
+      - name: Set up Haskell
+        id: setup-haskell
+        uses: haskell-actions/setup@v2.8
+        with:
+          ghc-version: ${{ matrix.ghc }}
+          cabal-version: 3.10.3.0
 
       - name: Cache Cabal packages
         uses: actions/cache@v4.2.3
@@ -48,29 +94,28 @@ jobs:
             ~/.cabal/packages
             ~/.cabal/store
             dist-newstyle
-          key: ${{ runner.os }}-ghc-${{ matrix.ghc }}-cabal-${{ hashFiles('**/*.cabal', '**/cabal.project', '**/cabal.project.freeze') }}
+          key: qt6-${{ runner.os }}-ghc-${{ matrix.ghc }}-cabal-${{ hashFiles('**/*.cabal', '**/cabal.project', '**/cabal.project.freeze') }}
           restore-keys: |
-            ${{ runner.os }}-ghc-${{ matrix.ghc }}-cabal-
+            qt6-${{ runner.os }}-ghc-${{ matrix.ghc }}-cabal-
 
-      - name: Install Qt5 Dependencies
+      - name: Install Qt6 Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            qtdeclarative5-dev \
-            qml-module-qtquick-controls2 \
-            qml-module-qtquick-window2 \
-            qml-module-qtquick2 \
-            libqt5quick5 \
-            qt5-image-formats-plugins \
-            qtmultimedia5-dev \
-            qml-module-qtmultimedia \
-            qttools5-dev-tools \
-            qtbase5-dev
+            qt6-base-dev \
+            qt6-base-dev-tools \
+            qt6-declarative-dev \
+            libqt6opengl6-dev \
+            qml6-module-qtquick \
+            qml6-module-qtquick-window
+
+      - name: Configure
+        run: PATH=/usr/lib64/qt6/libexec:$PATH cabal configure --enable-tests -fuseqt6
 
       - name: Build
-        run: cabal build --enable-tests
+        run: PATH=/usr/lib64/qt6/libexec:$PATH cabal build --enable-tests -fuseqt6
 
       - name: Test
         run: |
           export QT_QPA_PLATFORM=offscreen
-          cabal run hsqml-test1 --enable-tests
+          PATH=/usr/lib64/qt6/libexec:$PATH cabal run hsqml-test1 --enable-tests -fuseqt6

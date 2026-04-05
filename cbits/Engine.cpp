@@ -51,7 +51,7 @@ void HsQMLEngineProxy::ref(RefSrc src)
     int count = mRefCount.fetchAndAddOrdered(1);
 
     HSQML_LOG(count == 0 ? 3 : 4,
-        QString().sprintf("%s EngineProxy, id=%d, src=%s, count=%d.",
+        QString::asprintf("%s EngineProxy, id=%d, src=%s, count=%d.",
         count ? "Ref" : "New", mSerial, cRefSrcNames[src], count+1));
 }
 
@@ -60,7 +60,7 @@ void HsQMLEngineProxy::deref(RefSrc src)
     int count = mRefCount.fetchAndAddOrdered(-1);
 
     HSQML_LOG(count == 0 ? 3 : 4,
-        QString().sprintf("%s EngineProxy, id=%d, src=%s, count=%d.",
+        QString::asprintf("%s EngineProxy, id=%d, src=%s, count=%d.",
         count > 1 ? "Deref" : "Delete", mSerial, cRefSrcNames[src], count));
 
     if (count == 1) {
@@ -132,7 +132,7 @@ HsQMLEngine::~HsQMLEngine()
     // Release engine proxy and globals
     mProxy->setEngine(NULL);
     mProxy->deref(HsQMLEngineProxy::Engine);
-    Q_FOREACH(HsQMLObjectProxy* proxy, mGlobals) {
+    for (HsQMLObjectProxy* proxy : mGlobals) {
         proxy->deref(HsQMLObjectProxy::Engine);
     }
 

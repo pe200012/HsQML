@@ -3,6 +3,7 @@
 
 #include <QtCore/QObject>
 #include <QtCore/QAtomicInt>
+#include <QtCore/QMetaType>
 #include <QtCore/QScopedArrayPointer>
 
 #include "hsqml.h"
@@ -35,6 +36,9 @@ private:
     int mPropertyCount;
     HsQMLUniformFunc* mMethods;
     HsQMLUniformFunc* mProperties;
+#if QT_VERSION >= 0x060000
+    QMetaObject* mMetaObjectRaw;
+#endif
     QMetaObject mMetaObject;
 };
 

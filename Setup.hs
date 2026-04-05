@@ -1,6 +1,7 @@
 #!/usr/bin/runhaskell
 module Main where
 
+import Control.Applicative ((<|>))
 import Control.Monad
 import Data.Char
 import Data.List
@@ -24,9 +25,11 @@ import Distribution.Simple.Utils
 import Distribution.System
 import Distribution.Text
 import Distribution.Types.CondTree
+import Distribution.Types.Flag (lookupFlagAssignment, mkFlagName)
 import Distribution.Types.LocalBuildInfo
 import Distribution.Verbosity
 
+import System.Directory (doesDirectoryExist, listDirectory)
 import System.Environment
 import System.FilePath
 import System.Info (os)
@@ -34,12 +37,7 @@ import System.Info (os)
 import Text.Read (readMaybe)
 
 main :: IO ()
-main = do
-  -- If system uses qtchooser(1) then encourage it to choose Qt 5
-  env <- getEnvironment
-  case lookup "QT_SELECT" env of
-    Nothing -> setEnv "QT_SELECT" "5"
-    _       -> return ()
+main =
   -- Chain standard setup
   defaultMainWithHooks simpleUserHooks {
     confHook = confWithQt, buildHook = buildWithQt,
@@ -62,10 +60,30 @@ xMocHeaders    = "x-moc-headers"
 xFrameworkDirs = "x-framework-dirs"
 xSeparateCbits = "x-separate-cbits"
 
+usesQt6 :: ConfigFlags -> Bool
+usesQt6 flags =
+  fromMaybe False $
+    lookupFlagAssignment (mkFlagName "useqt6")
+      (configConfigurationsFlags flags)
+
+ensureQtSelect :: ConfigFlags -> IO ()
+ensureQtSelect flags = do
+  env <- getEnvironment
+  case lookup "QT_SELECT" env of
+    Nothing -> setEnv "QT_SELECT" $ if usesQt6 flags then "6" else "5"
+    _       -> return ()
+
+qtVersionRangeFor :: Bool -> VersionRange
+qtVersionRangeFor useQt6 = intersectVersionRanges
+  (orLaterVersion $ mkVersion [if useQt6 then 6 else 5,0])
+  (earlierVersion $ mkVersion [if useQt6 then 7 else 6,0])
+
 confWithQt :: (GenericPackageDescription, HookedBuildInfo) -> ConfigFlags ->
   IO LocalBuildInfo
 confWithQt (gpd,hbi) flags = do
+  ensureQtSelect flags
   let verb = fromFlag $ configVerbosity flags
+      useQt6 = usesQt6 flags
   mocPath <- (fmap . fmap) fst $
     programFindLocation mocProgram verb defaultProgramSearchPath
   cppPath <- (fmap . fmap) fst $
@@ -79,7 +97,7 @@ confWithQt (gpd,hbi) flags = do
   lbi <- confHook simpleUserHooks (gpd',hbi) flags
   -- Find Qt moc program and store in database
   (_,_,db') <- requireProgramVersion verb
-    mocProgram qtVersionRange (withPrograms lbi)
+    mocProgram (qtVersionRangeFor useQt6) (withPrograms lbi)
   -- Force enable GHCi workaround library if flag set and not using shared libs
   let forceGHCiLib =
         (getCustomFlag xForceGHCiLib $ localPkgDescr lbi) &&
@@ -136,23 +154,39 @@ buildWithQt pkgDesc lbi hooks flags = do
         buildGHCiFix verb pkgDesc lbi lib
       Nothing  -> return ()
 
+qtPrivateIncludeDirs :: BuildInfo -> IO [FilePath]
+qtPrivateIncludeDirs build = do
+  let coreIncludeDirs = filter ((== "QtCore") . takeBaseName) (includeDirs build)
+  fmap concat $ forM coreIncludeDirs $ \coreDir -> do
+    exists <- doesDirectoryExist coreDir
+    if not exists
+      then return []
+      else do
+        entries <- listDirectory coreDir
+        let versionDirs = filter (all (\c -> isDigit c || c == '.')) entries
+            mkDirs ver = [coreDir </> ver, coreDir </> ver </> "QtCore"]
+        filterM doesDirectoryExist (concatMap mkDirs versionDirs)
+
 fixQtBuild :: Verbosity -> LocalBuildInfo -> BuildInfo -> IO BuildInfo
 fixQtBuild verb lbi build = do
+  privateIncs <- qtPrivateIncludeDirs build
   let moc  = fromJust $ lookupProgram mocProgram $ withPrograms lbi
       option name = words $ fromMaybe "" $ lookup name $ customFieldsBI build
       incs = option xMocHeaders
       bDir = buildDir lbi
+      includeDirs' = privateIncs ++ includeDirs build
       cpps = map (\inc ->
         bDir </> (takeDirectory inc) </>
         ("moc_" ++ (takeBaseName inc) ++ ".cpp")) incs
-      args = map ("-I"++) (includeDirs build) ++
+      args = map ("-I"++) includeDirs' ++
              map ("-F"++) (option xFrameworkDirs)
   -- Run moc on each of the header files containing QObject subclasses
   mapM_ (\(i,o) -> do
       createDirectoryIfMissingVerbose verb True (takeDirectory o)
       runProgram verb moc $ [i,"-o",o] ++ args) $ zip incs cpps
   -- Add the moc generated source files to be compiled
-  return build {cxxSources = cpps ++ cxxSources build,
+  return build {includeDirs = includeDirs',
+                cxxSources = cpps ++ cxxSources build,
                 cxxOptions = "-fPIC" : cxxOptions build}
 
 needsGHCiFix :: PackageDescription -> LocalBuildInfo -> Bool
@@ -206,8 +240,13 @@ buildGHCiFix verb pkgDesc lbi lib =
 mocProgram :: Program
 mocProgram = Program {
   programName = "moc",
-  programFindLocation = \verb search ->
-    fmap msum $ mapM (findProgramOnSearchPath verb search) ["moc-qt5", "moc"],
+  programFindLocation = \verb search -> do
+    qtSelect <- lookupEnv "QT_SELECT"
+    let mocNames = case qtSelect of
+          Just "6" -> ["moc-qt6", "moc", "moc-qt5"]
+          Just "5" -> ["moc-qt5", "moc", "moc-qt6"]
+          _        -> ["moc-qt6", "moc-qt5", "moc"]
+    fmap msum $ mapM (findProgramOnSearchPath verb search) mocNames,
   programFindVersion = \verb path -> do
       (oLine, eLine, _) <- rawSystemStdInOut verb path ["-v"] Nothing Nothing Nothing IODataModeText
       return $
@@ -217,10 +256,6 @@ mocProgram = Program {
   programPostConf = \_ c -> return c,
   programNormaliseArgs = \_ _ args -> args
 }
-
-qtVersionRange :: VersionRange
-qtVersionRange = intersectVersionRanges
-  (orLaterVersion $ mkVersion [5,0]) (earlierVersion $ mkVersion [6,0])
 
 copyWithQt ::
   PackageDescription -> LocalBuildInfo -> UserHooks -> CopyFlags -> IO ()

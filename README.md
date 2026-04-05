@@ -11,6 +11,14 @@ please see the project's web site.
 **Original Darcs Repository (outdated):** http://hub.darcs.net/komadori/HsQML
 
 ## Notes
-- I made some changes, so this library works on newer GHC / cabal versions and has been tested on Qt5.
+- I made some changes, so this library works on newer GHC / cabal versions and has been tested on Qt5 and Qt6.
 - This library has been tested with cabal 3.10.3.0, due to its custom Setup.hs, not all versions of cabal are supported.
 - **Current Status:** This is a maintained fork of the original HsQML project.
+
+## Building
+- Qt5 build on Linux:
+  - `PATH=/usr/lib64/qt5/bin:$PATH cabal-3.10.3.0 build --enable-tests`
+- Qt6 build on Linux:
+  - `PATH=/usr/lib64/qt6/libexec:$PATH cabal-3.10.3.0 build --enable-tests -fuseqt6`
+- Qt6 support is enabled with the Cabal flag `useqt6`.
+- The custom `Setup.hs` will prefer the matching `moc` executable and set `QT_SELECT` automatically when it is not already set.

@@ -8,7 +8,11 @@
 #include <QtCore/QSharedData>
 #include <QtGui/qopengl.h>
 #include <QtGui/QOpenGLContext>
+#if QT_VERSION >= 0x060000
+#include <QtOpenGL/QOpenGLFramebufferObject>
+#else
 #include <QtGui/QOpenGLFramebufferObject>
+#endif
 #include <QtQuick/QQuickItem>
 
 #include "hsqml.h"
@@ -112,7 +116,11 @@ public:
 private:
     Q_DISABLE_COPY(HsQMLCanvas);
 
+#if QT_VERSION >= 0x060000
+    void geometryChange(const QRectF&, const QRectF&) Q_DECL_OVERRIDE;
+#else
     void geometryChanged(const QRectF&, const QRectF&) Q_DECL_OVERRIDE;
+#endif
     QSGNode* updatePaintNode(QSGNode*, UpdatePaintNodeData*) Q_DECL_OVERRIDE;
     void detachBackEnd();
     DisplayMode displayMode() const;
